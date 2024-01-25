@@ -43,7 +43,7 @@ def check_tokens():
             token_found = False
 
     if not token_found:
-        raise NameError
+        raise NameError('отсутствует обязательный токен или токены')
 
 
 def send_message(bot, message):
@@ -80,8 +80,10 @@ def get_api_answer(timestamp):
     if response.status_code != HTTPStatus.OK:
         raise EndpointAccessException(
             f'сбой при запросе к эндпоинту {request_args["url"]}: '
-            f'{response_content["code"]}, сервер ответил кодом '
-            f'{response.status_code}'
+            f'сервер ответил кодом {response.status_code}, '
+            f'код ошибки - "{response_content.get("code")}", '
+            f'сообщение об ошибке - "{response_content.get("message")}", '
+            f'ошибка - "{response_content.get("error")}"'
         )
     return response_content
 
@@ -114,13 +116,14 @@ def parse_status(homework):
             'ошибка при парсинге информации о домашней работе '
             '- отсутствует ключ в словаре'
         )
-    if homework['status'] not in HOMEWORK_VERDICTS:
+    status = homework['status']
+    if status not in HOMEWORK_VERDICTS:
         raise AnswerParsingException(
             'ошибка при парсинге информации о домашней работе '
             '- неожиданный статус домашней работы'
         )
 
-    verdict = HOMEWORK_VERDICTS[homework['status']]
+    verdict = HOMEWORK_VERDICTS[status]
     homework_name = homework['homework_name']
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
@@ -136,7 +139,7 @@ def main():
         try:
             response = get_api_answer(timestamp)
             homeworks = check_response(response)
-            if len(homeworks):
+            if homeworks:
                 homework = homeworks[0]
                 message = parse_status(homework)
             else:
@@ -144,10 +147,12 @@ def main():
             if message != last_message:
                 if send_message(bot, message):
                     last_message = message
-                    timestamp = response.get('current_date')
+                    timestamp = response.get('current_date', timestamp)
             else:
-                logging.debug('В ответе отсутствуют новые статусы')
-
+                logging.debug(message)
+        except AnswerApiException as error:
+            message = f'Сбой в работе программы: {error}'
+            logging.exception(message)
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
             logging.exception(message)
@@ -160,7 +165,7 @@ def main():
 
 if __name__ == '__main__':
     stream_handler = logging.StreamHandler(stdout)
-    file_handler = logging.FileHandler(f'{__file__}.log')
+    file_handler = logging.FileHandler(f'{__file__}.log', encoding='utf-8')
     logging.basicConfig(
         level=logging.DEBUG,
         handlers=[stream_handler, file_handler],
